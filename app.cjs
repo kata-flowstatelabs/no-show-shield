@@ -10,7 +10,7 @@ sgMail.setApiKey(SENDGRID_API_KEY);
 
 const app  = express();
 const PORT = 3001;
-const HOST = "127.0.0.1";
+const HOST = "0.0.0.0";
 const BASE = `http://${HOST}:${PORT}`;
 const appts = new Map();
 
