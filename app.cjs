@@ -8,21 +8,32 @@ const sgMail  = require("@sendgrid/mail");
 const path    = require("path");
 
 // --- ENV ---
-const { SENDGRID_API_KEY, SENDGRID_FROM } = process.env;
+const {
+  SENDGRID_API_KEY,
+  SENDGRID_FROM,
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  GOOGLE_REDIRECT_URI
+} = process.env;
+
 if (!SENDGRID_API_KEY || !SENDGRID_API_KEY.startsWith("SG.")) { console.error("SENDGRID_API_KEY hiányzik/rossz"); process.exit(1); }
 if (!SENDGRID_FROM) { console.error("SENDGRID_FROM hiányzik"); process.exit(1); }
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
+  console.warn("FIGYELEM: Google OAuth env változók hiányosak; /auth működhetetlen lesz, de az email emlékeztetők mennek.");
+}
 sgMail.setApiKey(SENDGRID_API_KEY);
 
 // --- APP ---
 const app = express();
-app.use(cors());                           // CORS engedélyezés
-app.use(express.json());                   // JSON body
+app.use(cors());
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(__dirname));        // index.html ugyaninnen
+app.use(express.static(__dirname)); // index.html ugyaninnen
 
 const appts = new Map();
+let googleTokens = null; // MVP: memóriában tartjuk
 
-// Segéd: bázis URL a tényleges domainekhez (Render, lokál, stb.)
+// Segéd: bázis URL a tényleges domainekhez (Render/lokál)
 function getBase(req) {
   const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
   const host  = req.headers["x-forwarded-host"]  || req.headers.host;
@@ -85,6 +96,51 @@ function scheduleReminders(id){
 
 // Egyszerű életjel
 app.get("/ping", (_req, res) => res.send("pong"));
+
+// --- Google OAuth: /auth -> Google consent ---
+app.get("/auth", (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_REDIRECT_URI) return res.status(500).send("Google OAuth nincs konfigurálva.");
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: "code",
+    scope: "https://www.googleapis.com/auth/calendar.readonly",
+    access_type: "offline",
+    prompt: "consent"
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+// --- Google OAuth callback: kód -> token csere ---
+app.get("/oauth2callback", async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.status(400).send("Hiányzó 'code' paraméter.");
+  try {
+    const body = new URLSearchParams({
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      grant_type: "authorization_code"
+    });
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body
+    });
+    const data = await r.json();
+    if (!r.ok) return res.status(502).send("Token csere hiba: " + JSON.stringify(data));
+    googleTokens = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token, // első consentnél jön
+      expiry_date: Date.now() + (data.expires_in || 0) * 1000
+    };
+    console.log("Google OAuth OK. Access token él:", !!googleTokens.access_token, " Refresh token:", !!googleTokens.refresh_token);
+    res.send("<b>Google engedélyezve.</b> Visszaléphetsz az alkalmazásra.");
+  } catch (e) {
+    res.status(500).send("OAuth hiba: " + e.message);
+  }
+});
 
 // Ütemezés – támogatja a GET query-t és a POST JSON-t is
 app.all("/schedule", async (req, res) => {
