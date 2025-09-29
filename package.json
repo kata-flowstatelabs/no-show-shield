@@ -1,0 +1,19 @@
+{
+  "name": "no-show-shield",
+  "version": "1.0.0",
+  "description": "No-Show Shield MVP",
+  "main": "app.cjs",
+  "scripts": {
+    "start": "node app.cjs",
+    "dev": "cross-env TEST_MODE=1 node app.cjs"
+  },
+  "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.14"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
+  }
+}

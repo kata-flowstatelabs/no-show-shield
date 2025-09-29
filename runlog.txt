@@ -1,0 +1,6 @@
+RUN FILE: C:\nss\app.cjs
+CWD: C:\nss
+ENV prefix: SG.
+FROM: kata.flowstatelabs@gmail.com 
+No-Show Shield on :3001
+^C
