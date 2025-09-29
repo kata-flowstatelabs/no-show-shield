@@ -5,81 +5,133 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>No-Show Shield – Időpont foglalás</title>
   <style>
-    body{font:16px system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}
-    header a{margin-right:16px;text-decoration:none}
-    label{display:block;margin:14px 0 6px}
+    body{font:16px system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:960px;margin:28px auto;padding:0 16px}
+    h1{font-size:26px;margin:0 0 12px}
+    h2{font-size:18px;margin:24px 0 8px}
+    label{display:block;margin:12px 0 6px}
     input,select,button{font:16px system-ui;padding:10px 12px}
     input,select{width:100%}
-    .row{margin-top:16px}
-    .muted{color:#666;font-size:14px;margin-top:10px}
+    .row{display:flex;gap:10px;margin-top:14px}
+    .muted{color:#666;font-size:14px;margin-top:8px}
+    .events{border:1px solid #ddd;border-radius:8px;padding:8px}
+    .event{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #eee;padding:8px 4px}
+    .event:first-child{border-top:none}
+    .event small{color:#555}
+    .pill{padding:6px 10px;border:1px solid #ccc;border-radius:999px;background:#fafafa;cursor:pointer}
+    .ok{color:#0a0}
+    .err{color:#a00}
   </style>
 </head>
 <body>
-  <header>
-    <a href="/" aria-label="home">🏠</a>
-    <a href="/send-test" id="sendtest">send test</a>
-    <a href="/schedule" id="menu-schedule">schedule</a>
-    <a href="/schedule-ghl" id="menu-ghl">schedule GHL</a>
+  <header style="margin-bottom:12px">
+    <a class="pill" href="/auth">🔐 Google auth</a>
+    <a class="pill" href="/send-test">send test</a>
+    <a class="pill" href="/schedule">schedule</a>
+    <a class="pill" href="/schedule-ghl">schedule GHL</a>
   </header>
 
   <h1>No-Show Shield – Időpont foglalás</h1>
 
-  <label for="email">Ügyfél e-mail</label>
-  <input id="email" type="email" placeholder="pl. kata.flowstatelabs@gmail.com" required>
+  <section>
+    <h2>Kézi teszt (percek alapján)</h2>
+    <label for="email">Ügyfél e-mail</label>
+    <input id="email" type="email" placeholder="pl. kata.flowstatelabs@gmail.com" required>
+    <label for="mins">Kezdés ennyi perc múlva</label>
+    <select id="mins">
+      <option value="3">3 perc (teszt)</option>
+      <option value="5">5 perc</option>
+      <option value="15">15 perc</option>
+      <option value="60">60 perc</option>
+    </select>
+    <div class="row">
+      <button id="save">Időpont rögzítése</button>
+      <button id="clear" type="button">Űrlap törlése</button>
+    </div>
+    <div id="msg" class="muted"></div>
+  </section>
 
-  <label for="mins">Kezdés ennyi perc múlva</label>
-  <select id="mins">
-    <option value="3">3 perc (teszt)</option>
-    <option value="5">5 perc</option>
-    <option value="15">15 perc</option>
-    <option value="60">60 perc</option>
-  </select>
-
-  <div class="row">
-    <button id="save">Időpont rögzítése</button>
-    <button id="clear" type="button">Űrlap törlése</button>
-  </div>
-
-  <div id="msg" class="muted"></div>
-
-  <p class="muted">Renderen fut. Relatív végpontok: <code>/send-test</code>, <code>/schedule</code>, <code>/schedule-ghl</code>.</p>
+  <section>
+    <h2>Google Calendar események</h2>
+    <div class="muted">Előbb jelentkezz be: <a href="/auth">/auth</a>. Utána frissítsd ezt az oldalt.</div>
+    <div class="row" style="margin-top:8px">
+      <button id="load">Események betöltése</button>
+      <span id="gmsg" class="muted"></span>
+    </div>
+    <div id="events" class="events" style="display:none"></div>
+  </section>
 
   <script>
     const $ = s => document.querySelector(s);
-    const msg = t => { $('#msg').textContent = t; };
+    const msg = t => $('#msg').textContent = t || '';
+    const gmsg = t => { $('#gmsg').textContent = t || ''; };
 
-    // send test link: GET /send-test
-    $('#sendtest').addEventListener('click', async (e) => {
-      e.preventDefault();
-      msg('Teszt email küldése…');
-      try {
-        const r = await fetch('/send-test');
-        msg(r.ok ? 'Teszt email kérés elküldve.' : 'Hiba a teszt kérésnél.');
-      } catch { msg('Hálózati hiba a teszt kérésnél.'); }
-    });
-
-    // schedule button: POST /schedule  {email, minutes}
-    $('#save').addEventListener('click', async () => {
+    // Kézi ütemezés
+    $('#save').onclick = async () => {
       const email = $('#email').value.trim();
       const minutes = parseInt($('#mins').value, 10);
       if (!email) { msg('Adj meg egy e-mail címet.'); return; }
-      msg('Időpont rögzítése…');
+      msg('Ütemezés…');
       try {
-        const r = await fetch('/schedule', {
+        const r = await fetch('/schedule?to=' + encodeURIComponent(email) + '&minutes=' + minutes);
+        if (!r.ok) { msg('Hiba az ütemezésnél.'); return; }
+        const data = await r.json();
+        msg('Ütemezve. ID: ' + data.id);
+      } catch { msg('Hálózati hiba.'); }
+    };
+    $('#clear').onclick = () => { $('#email').value=''; $('#mins').value='3'; msg(''); };
+
+    // GCal lista + ütemezés
+    $('#load').onclick = async () => {
+      gmsg('Betöltés…');
+      const box = $('#events');
+      box.style.display = 'none';
+      box.innerHTML = '';
+      try {
+        const r = await fetch('/gcal/upcoming');
+        if (r.status === 401) { gmsg('Nincs Google engedély. Katt: Google auth.'); return; }
+        if (!r.ok) { gmsg('Lista hiba.'); return; }
+        const data = await r.json();
+        if (!data.events?.length) { gmsg('Nincs közelgő esemény.'); return; }
+        data.events.forEach(e => {
+          const div = document.createElement('div');
+          div.className = 'event';
+          const start = e.start || '';
+          div.innerHTML =
+            `<div><b>${e.summary || '(névtelen)'}</b><br><small>${start}</small></div>
+             <button class="pill" data-id="${e.id}">Ütemezés erre</button>`;
+          box.appendChild(div);
+        });
+        box.style.display = 'block';
+        gmsg('');
+      } catch { gmsg('Hálózati hiba.'); }
+    };
+
+    // Delegált kattintás: Ütemezés erre
+    document.addEventListener('click', async (ev) => {
+      if (!(ev.target instanceof HTMLElement)) return;
+      const id = ev.target.getAttribute('data-id');
+      if (!id) return;
+      const to = $('#email').value.trim();
+      if (!to) { msg('Adj meg e-mail címet a felső mezőben.'); return; }
+      ev.target.disabled = true;
+      ev.target.textContent = 'Ütemezés…';
+      try {
+        const r = await fetch('/gcal/schedule', {
           method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ email, minutes })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventId: id, to })
         });
         const ok = r.ok;
-        msg(ok ? 'Ütemezve. Emlékeztetők hamarosan jönnek.' : 'Hiba az ütemezésnél.');
-      } catch { msg('Hálózati hiba az ütemezésnél.'); }
+        ev.target.textContent = ok ? 'Ütemezve ✓' : 'Hiba';
+        if (ok) msg('Ütemezve a kiválasztott eseményre.');
+        else msg('Hiba a GCal ütemezésnél.');
+      } catch {
+        ev.target.textContent = 'Hiba';
+        msg('Hálózati hiba.');
+      } finally {
+        setTimeout(() => { ev.target.disabled = false; ev.target.textContent = 'Ütemezés erre'; }, 2500);
+      }
     });
-
-    // optional link to GHL schedule endpoint
-    $('#menu-schedule').addEventListener('click', e => { e.preventDefault(); fetch('/schedule'); });
-    $('#menu-ghl').addEventListener('click', e => { e.preventDefault(); fetch('/schedule-ghl'); });
-
-    $('#clear').onclick = () => { $('#email').value=''; $('#mins').value='3'; msg(''); };
   </script>
 </body>
 </html>
