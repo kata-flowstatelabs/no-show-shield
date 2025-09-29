@@ -1,43 +1,58 @@
+// app.cjs
+require("dotenv").config();
+
 const express = require("express");
+const cors    = require("cors");
 const crypto  = require("crypto");
 const sgMail  = require("@sendgrid/mail");
 const path    = require("path");
 
+// --- ENV ---
 const { SENDGRID_API_KEY, SENDGRID_FROM } = process.env;
 if (!SENDGRID_API_KEY || !SENDGRID_API_KEY.startsWith("SG.")) { console.error("SENDGRID_API_KEY hiányzik/rossz"); process.exit(1); }
 if (!SENDGRID_FROM) { console.error("SENDGRID_FROM hiányzik"); process.exit(1); }
 sgMail.setApiKey(SENDGRID_API_KEY);
 
-const app  = express();
-const PORT = 3001;
-const HOST = "0.0.0.0";
-const BASE = `http://${HOST}:${PORT}`;
+// --- APP ---
+const app = express();
+app.use(cors());                           // CORS engedélyezés
+app.use(express.json());                   // JSON body
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(__dirname));        // index.html ugyaninnen
+
 const appts = new Map();
 
-// statikus kiszolgálás ugyanarról az originről
-app.use(express.static(__dirname)); // itt van az index.html
+// Segéd: bázis URL a tényleges domainekhez (Render, lokál, stb.)
+function getBase(req) {
+  const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  const host  = req.headers["x-forwarded-host"]  || req.headers.host;
+  return `${proto}://${host}`;
+}
+const linksOf = (req, id) => {
+  const base = getBase(req);
+  return {
+    confirm: `${base}/confirm?id=${id}`,
+    cancel:  `${base}/cancel?id=${id}`,
+    status:  `${base}/status?id=${id}`,
+  };
+};
 
-app.get("/ping", (_req, res) => res.send("pong"));
-
-const link  = (p) => `${BASE}${p}`;
-const links = (id) => ({
-  confirm: link(`/confirm?id=${id}`),
-  cancel:  link(`/cancel?id=${id}`),
-  status:  link(`/status?id=${id}`),
-});
-
+// Mail küldés
 async function sendMail(to, subject, text, html) {
   const r = await sgMail.send({ from: `No-Show Shield <${SENDGRID_FROM}>`, to, subject, text, html });
   console.log("SENDGRID:", r[0]?.statusCode, r[0]?.headers?.["x-message-id"] || "");
 }
 
+// Timerek
 function clearTimers(a){ for (const t of a.timers||[]) try{ clearTimeout(t.id);}catch{} a.timers=[]; }
 
 function scheduleReminders(id){
   const a = appts.get(id); if(!a) return;
   const startMs = Date.parse(a.startsAt);
   const now = Date.now();
-  const OFFSETS = [120_000, 30_000]; // teszt: -2p, -30s
+
+  // Teszt OFFSETS: -2 perc, -30 mp
+  const OFFSETS = [120_000, 30_000];
 
   a.timers = a.timers || [];
   for (const off of OFFSETS){
@@ -47,7 +62,7 @@ function scheduleReminders(id){
     const tid = setTimeout(async () => {
       const cur = appts.get(id); if(!cur) return;
       if (!["scheduled","confirmed"].includes(cur.status)) return;
-      const L = links(id);
+      const L = { confirm: cur.links.confirm, cancel: cur.links.cancel, status: cur.links.status };
       const human = new Date(startMs).toLocaleString();
       try {
         await sendMail(cur.to,
@@ -68,19 +83,28 @@ function scheduleReminders(id){
   }
 }
 
-app.get("/schedule", async (req, res) => {
-  const { to, minutes } = req.query;
-  if (!to || !minutes) return res.status(400).send("Kell: to, minutes");
+// Egyszerű életjel
+app.get("/ping", (_req, res) => res.send("pong"));
+
+// Ütemezés – támogatja a GET query-t és a POST JSON-t is
+app.all("/schedule", async (req, res) => {
+  const to = (req.body?.email || req.body?.to || req.query?.to || "").toString().trim();
+  const minutesRaw = req.body?.minutes ?? req.query?.minutes;
+  const minutes = Number(minutesRaw);
+
+  if (!to || !Number.isFinite(minutes) || minutes <= 0) {
+    return res.status(400).json({ error: "Kell: to/email és minutes>0" });
+  }
 
   const id = crypto.randomUUID();
-  const startsAt = new Date(Date.now() + Number(minutes) * 60_000).toISOString();
-  appts.set(id, { to: String(to), startsAt, status: "scheduled", timers: [] });
+  const startsAt = new Date(Date.now() + minutes * 60_000).toISOString();
+  const L = linksOf(req, id);
 
-  const L = links(id);
+  appts.set(id, { to, startsAt, status: "scheduled", timers: [], links: L });
+
   const human = new Date(startsAt).toLocaleString();
-
   try {
-    await sendMail(String(to), "Időpont rögzítve",
+    await sendMail(to, "Időpont rögzítve",
       [`Kezdés: ${startsAt}`, `Visszaigazolás: ${L.confirm}`, `Lemondás: ${L.cancel}`, `Státusz: ${L.status}`].join("\n"),
       `<p>Kezdés: <b>${human}</b></p>
        <p>Visszaigazolás: <a href="${L.confirm}">${L.confirm}</a></p>
@@ -88,7 +112,7 @@ app.get("/schedule", async (req, res) => {
        <p>Státusz: <a href="${L.status}">${L.status}</a></p>`
     );
   } catch (e) {
-    return res.status(502).send("E-mail küldési hiba: " + JSON.stringify(e.response?.body || e.message));
+    return res.status(502).json({ error: "E-mail küldési hiba", details: e.response?.body || e.message });
   }
 
   scheduleReminders(id);
@@ -112,4 +136,7 @@ app.get("/status", (req, res) => {
   res.json({ id: req.query.id, to: a.to, startsAt: a.startsAt, status: a.status, timers: (a.timers||[]).map(t=>({offsetSec:t.offset/1000, runAt:new Date(t.runAt).toISOString()})) });
 });
 
-app.listen(PORT, HOST, () => console.log(`No-Show Shield on ${BASE}`));
+// Indítás Render-kompatibilisen
+const PORT = process.env.PORT || 3001;
+const HOST = "0.0.0.0";
+app.listen(PORT, HOST, () => console.log(`No-Show Shield on http://${HOST}:${PORT}`));
