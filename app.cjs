@@ -6,6 +6,12 @@ const cors    = require("cors");
 const crypto  = require("crypto");
 const sgMail  = require("@sendgrid/mail");
 
+app.use((req, res, next) => {
+  console.log("HTTP", req.method, req.url);
+  next();
+});
+
+
 // ==== ENV ====
 const {
   SENDGRID_API_KEY,
@@ -238,3 +244,4 @@ app.get("/status",(req,res)=>{ const a=appts.get(req.query.id); if(!a) return re
 // ==== START ====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT,"0.0.0.0",()=>console.log("No-Show Shield on port",PORT));
+
