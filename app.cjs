@@ -6,12 +6,6 @@ const cors    = require("cors");
 const crypto  = require("crypto");
 const sgMail  = require("@sendgrid/mail");
 
-app.use((req, res, next) => {
-  console.log("HTTP", req.method, req.url);
-  next();
-});
-
-
 // ==== ENV ====
 const {
   SENDGRID_API_KEY,
@@ -23,14 +17,22 @@ const {
 
 if (!SENDGRID_API_KEY || !SENDGRID_API_KEY.startsWith("SG.")) { console.error("SENDGRID_API_KEY hiányzik/rossz"); process.exit(1); }
 if (!SENDGRID_FROM) { console.error("SENDGRID_FROM hiányzik"); process.exit(1); }
+
 sgMail.setApiKey(SENDGRID_API_KEY);
 
 // ==== APP ====
-const app = express();
+const app = express(); // <--- fontos: app létrehozása elöl
+
+// kérés-naplózás, hogy Render logban lásd a bejövő hívásokat
+app.use((req, res, next) => {
+  console.log("HTTP", req.method, req.url);
+  next();
+});
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(__dirname)); // index.html
+app.use(express.static(__dirname)); // index.html itt van
 
 // memória-MVP
 const appts = new Map();
@@ -42,14 +44,18 @@ function baseUrl(req){
   const host  = req.headers["x-forwarded-host"]  || req.headers.host;
   return `${proto}://${host}`;
 }
-const linksOf = (req,id)=>({confirm:`${baseUrl(req)}/confirm?id=${id}`,cancel:`${baseUrl(req)}/cancel?id=${id}`,status:`${baseUrl(req)}/status?id=${id}`});
+const linksOf = (req,id)=>({
+  confirm:`${baseUrl(req)}/confirm?id=${id}`,
+  cancel:`${baseUrl(req)}/cancel?id=${id}`,
+  status:`${baseUrl(req)}/status?id=${id}`
+});
 
 async function sendMail(to, subject, text, html){
   const r = await sgMail.send({ from: `No-Show Shield <${SENDGRID_FROM}>`, to, subject, text, html });
   console.log("SENDGRID:", r[0]?.statusCode, r[0]?.headers?.["x-message-id"]||"");
 }
 
-function clearTimers(a){ for(const t of a.timers||[]) try{clearTimeout(t.id)}catch{} a.timers=[]; }
+function clearTimers(a){ for(const t of a.timers||[]) try{ clearTimeout(t.id)}catch{} a.timers=[]; }
 
 function scheduleReminders(id, startIso, to, req){
   const startMs = Date.parse(startIso);
@@ -145,7 +151,7 @@ app.get("/oauth2callback", async (req,res)=>{
 
 // ===== Calendar: listázás és ütemezés =====
 app.get("/gcal/upcoming", async (req,res)=>{
-  if(!googleTokens?.access_token) return res.status(401).json({error:"Nincs Google engedély. Lépj be: /auth"});
+  if(!googleTokens?.access_token) return res.status(401).json({error:"Nincs Google engedély. /auth"});
   await refreshIfNeeded();
   const max = Math.min(Number(req.query.max||10),50);
   const nowIso = new Date().toISOString();
@@ -184,7 +190,7 @@ app.post("/gcal/schedule", async (req,res)=>{
 
   const id = crypto.randomUUID();
 
-  // 1) AZONNALI visszaigazoló email
+  // azonnali visszaigazolás
   const L = linksOf(req,id);
   const human = new Date(startIso).toLocaleString();
   try{
@@ -199,7 +205,7 @@ app.post("/gcal/schedule", async (req,res)=>{
     return res.status(502).json({ error: "E-mail küldési hiba", details: err.response?.body || err.message });
   }
 
-  // 2) Emlékeztetők ütemezése
+  // emlékeztetők ütemezése
   scheduleReminders(id, startIso, String(to), req);
 
   res.json({ ok:true, id, to: String(to), startsAt: startIso, links: L });
@@ -244,4 +250,3 @@ app.get("/status",(req,res)=>{ const a=appts.get(req.query.id); if(!a) return re
 // ==== START ====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT,"0.0.0.0",()=>console.log("No-Show Shield on port",PORT));
-
