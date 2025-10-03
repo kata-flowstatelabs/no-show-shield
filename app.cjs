@@ -177,12 +177,29 @@ app.post("/gcal/schedule", async (req,res)=>{
   if(!startIso) return res.status(400).json({error:"Az eseményhez nincs kezdési idő."});
 
   const id = crypto.randomUUID();
+
+  // 1) AZONNALI visszaigazoló email
+  const L = linksOf(req,id);
+  const human = new Date(startIso).toLocaleString();
+  try{
+    await sendMail(String(to), "Időpont rögzítve",
+      [`Kezdés: ${startIso}`, `Visszaigazolás: ${L.confirm}`, `Lemondás: ${L.cancel}`, `Státusz: ${L.status}`].join("\n"),
+      `<p>Kezdés: <b>${human}</b></p>
+       <p>Visszaigazolás: <a href="${L.confirm}">${L.confirm}</a></p>
+       <p>Lemondás: <a href="${L.cancel}">${L.cancel}</a></p>
+       <p>Státusz: <a href="${L.status}">${L.status}</a></p>`
+    );
+  }catch(err){
+    return res.status(502).json({ error: "E-mail küldési hiba", details: err.response?.body || err.message });
+  }
+
+  // 2) Emlékeztetők ütemezése
   scheduleReminders(id, startIso, String(to), req);
 
-  res.json({ ok:true, id, to, startsAt:startIso, links: linksOf(req,id) });
+  res.json({ ok:true, id, to: String(to), startsAt: startIso, links: L });
 });
 
-// ===== kézi ütemezés (megmarad) =====
+// ===== kézi ütemezés megmarad =====
 app.all("/schedule", async (req,res)=>{
   const to = (req.body?.email || req.body?.to || req.query?.to || "").toString().trim();
   const minutesRaw = req.body?.minutes ?? req.query?.minutes;
@@ -191,6 +208,21 @@ app.all("/schedule", async (req,res)=>{
 
   const startsAt = new Date(Date.now()+minutes*60_000).toISOString();
   const id = crypto.randomUUID();
+
+  const L = linksOf(req,id);
+  const human = new Date(startsAt).toLocaleString();
+  try {
+    await sendMail(to, "Időpont rögzítve",
+      [`Kezdés: ${startsAt}`, `Visszaigazolás: ${L.confirm}`, `Lemondás: ${L.cancel}`, `Státusz: ${L.status}`].join("\n"),
+      `<p>Kezdés: <b>${human}</b></p>
+       <p>Visszaigazolás: <a href="${L.confirm}">${L.confirm}</a></p>
+       <p>Lemondás: <a href="${L.cancel}">${L.cancel}</a></p>
+       <p>Státusz: <a href="${L.status}">${L.status}</a></p>`
+    );
+  } catch (e) {
+    return res.status(502).json({ error: "E-mail küldési hiba", details: e.response?.body || e.message });
+  }
+
   scheduleReminders(id, startsAt, to, req);
 
   res.json({
