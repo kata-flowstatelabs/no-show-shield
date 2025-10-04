@@ -6,6 +6,7 @@ const cors    = require("cors");
 const crypto  = require("crypto");
 const sgMail  = require("@sendgrid/mail");
 const Stripe = require("stripe");
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 app.use(express.json());
 
 // ---- STRIPE NO-SHOW FEE ----
@@ -371,6 +372,7 @@ app.post("/stripe/create", express.json(), async (req, res) => {
   }
 });
 app.listen(PORT,"0.0.0.0",()=>console.log("No-Show Shield on port",PORT));
+
 
 
 
