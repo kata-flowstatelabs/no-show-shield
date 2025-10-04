@@ -5,6 +5,50 @@ const express = require("express");
 const cors    = require("cors");
 const crypto  = require("crypto");
 const sgMail  = require("@sendgrid/mail");
+const Stripe = require("stripe");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+app.use(express.json());
+
+// ---- STRIPE NO-SHOW FEE ----
+app.post("/stripe/create", async (req, res) => {
+  const { amountHUF, email } = req.body;
+  if (!amountHUF || !email) return res.status(400).json({ error: "amountHUF és email kell" });
+  try {
+    const pi = await stripe.paymentIntents.create({
+      amount: Math.round(amountHUF),
+      currency: "huf",
+      payment_method_types: ["card"],
+      capture_method: "manual", // csak zárolás
+      description: "No-show fee előengedély",
+      receipt_email: email
+    });
+    res.json({ clientSecret: pi.client_secret, paymentIntentId: pi.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Levonás (ha nem jött el)
+app.post("/stripe/capture", async (req, res) => {
+  try {
+    const { id } = req.body;
+    const captured = await stripe.paymentIntents.capture(id);
+    res.json({ ok: true, captured });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Felszabadítás (ha megjelent)
+app.post("/stripe/cancel", async (req, res) => {
+  try {
+    const { id } = req.body;
+    const canceled = await stripe.paymentIntents.cancel(id);
+    res.json({ ok: true, canceled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ==== ENV ====
 const {
@@ -296,3 +340,4 @@ app.get("/status",(req,res)=>{ const a=appts.get(req.query.id); if(!a) return re
 // ==== START ====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT,"0.0.0.0",()=>console.log("No-Show Shield on port",PORT));
+
