@@ -5,6 +5,7 @@ const express = require("express");
 const cors    = require("cors");
 const crypto  = require("crypto");
 const sgMail  = require("@sendgrid/mail");
+const stripe  = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const Stripe = require("stripe");
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 app.use(express.json());
@@ -339,5 +340,38 @@ app.get("/status",(req,res)=>{ const a=appts.get(req.query.id); if(!a) return re
 
 // ==== START ====
 const PORT = process.env.PORT || 3001;
+// Stripe fizetési végpont
+app.post("/stripe/create", express.json(), async (req, res) => {
+  try {
+    const { amountHUF, email } = req.body;
+    if (!amountHUF || !email) {
+      return res.status(400).json({ error: "Kell: amountHUF és email" });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      customer_email: email,
+      line_items: [
+        {
+          price_data: {
+            currency: "huf",
+            product_data: { name: "No-Show Fee" },
+            unit_amount: Math.round(amountHUF),
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: "https://no-show-shield.onrender.com/success",
+      cancel_url: "https://no-show-shield.onrender.com/cancel",
+    });
+
+    res.json({ checkout_url: session.url });
+  } catch (err) {
+    console.error("STRIPE ERROR:", err);
+    res.status(500).json({ error: "Stripe hiba", details: err.message });
+  }
+});
 app.listen(PORT,"0.0.0.0",()=>console.log("No-Show Shield on port",PORT));
+
 
