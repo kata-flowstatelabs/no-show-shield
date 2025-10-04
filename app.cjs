@@ -12,7 +12,10 @@ const {
   SENDGRID_FROM,
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
-  GOOGLE_REDIRECT_URI
+  GOOGLE_REDIRECT_URI,
+  TEST_MODE,
+  REMINDER_OFFSETS,
+  TEST_REMINDER_OFFSETS
 } = process.env;
 
 if (!SENDGRID_API_KEY || !SENDGRID_API_KEY.startsWith("SG.")) { console.error("SENDGRID_API_KEY hiányzik/rossz"); process.exit(1); }
@@ -21,13 +24,10 @@ if (!SENDGRID_FROM) { console.error("SENDGRID_FROM hiányzik"); process.exit(1);
 sgMail.setApiKey(SENDGRID_API_KEY);
 
 // ==== APP ====
-const app = express(); // <--- fontos: app létrehozása elöl
+const app = express();
 
-// kérés-naplózás, hogy Render logban lásd a bejövő hívásokat
-app.use((req, res, next) => {
-  console.log("HTTP", req.method, req.url);
-  next();
-});
+// kérés-naplózás a Render loghoz
+app.use((req, _res, next) => { console.log("HTTP", req.method, req.url); next(); });
 
 app.use(cors());
 app.use(express.json());
@@ -37,6 +37,23 @@ app.use(express.static(__dirname)); // index.html itt van
 // memória-MVP
 const appts = new Map();
 let googleTokens = null; // {access_token, refresh_token, expiry_date}
+
+// --- OFFSETS betöltés (éles vs teszt) ---
+function parseOffsets(str, fallback) {
+  if (!str) return fallback;
+  try {
+    const arr = String(str).split(",").map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n>0);
+    return arr.length ? arr : fallback;
+  } catch { return fallback; }
+}
+function getActiveOffsets() {
+  const isTest = String(TEST_MODE||"0") === "1";
+  const prod = parseOffsets(REMINDER_OFFSETS, [86400000, 7200000, 900000, 300000]); // 24h, 2h, 15m, 5m
+  const test = parseOffsets(TEST_REMINDER_OFFSETS, [120000, 30000]);                // 2m, 30s
+  const chosen = isTest ? test : prod;
+  console.log("OFFSETS ACTIVE:", chosen, "MODE:", isTest ? "TEST" : "PROD");
+  return chosen;
+}
 
 // segédek
 function baseUrl(req){
@@ -60,7 +77,7 @@ function clearTimers(a){ for(const t of a.timers||[]) try{ clearTimeout(t.id)}ca
 function scheduleReminders(id, startIso, to, req){
   const startMs = Date.parse(startIso);
   const now = Date.now();
-  const OFFSETS = [120000,30000]; // teszt: -2p, -30s
+  const OFFSETS = getActiveOffsets();
 
   const L = linksOf(req,id);
   const a = { to, startsAt:startIso, status:"scheduled", timers:[], links:L };
@@ -74,7 +91,7 @@ function scheduleReminders(id, startIso, to, req){
       if(!["scheduled","confirmed"].includes(cur.status)) return;
       const human = new Date(startMs).toLocaleString();
       try{
-        await sendMail(cur.to, `Emlékeztető (${Math.round(off/1000)}s előtte)`,
+        await sendMail(cur.to, `Emlékeztető (${Math.round(off/60000)} perc / ${Math.round(off/1000)} mp előtte)`,
           [`Kezdés: ${cur.startsAt}`,`Visszaigazolás: ${L.confirm}`,`Lemondás: ${L.cancel}`,`Státusz: ${L.status}`].join("\n"),
           `<p>Kezdés: <b>${human}</b></p>
            <p>Visszaigazolás: <a href="${L.confirm}">${L.confirm}</a></p>
@@ -151,7 +168,7 @@ app.get("/oauth2callback", async (req,res)=>{
 
 // ===== Calendar: listázás és ütemezés =====
 app.get("/gcal/upcoming", async (req,res)=>{
-  if(!googleTokens?.access_token) return res.status(401).json({error:"Nincs Google engedély. /auth"});
+  if(!googleTokens?.access_token) return res.status(401).json({error:"Nincs Google engedély. Lépj be: /auth"});
   await refreshIfNeeded();
   const max = Math.min(Number(req.query.max||10),50);
   const nowIso = new Date().toISOString();
