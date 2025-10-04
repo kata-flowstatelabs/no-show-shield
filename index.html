@@ -101,42 +101,6 @@
     const hide = el => el.style.display='none';
     const debug = new URLSearchParams(location.search).get('debug') === '1';
 
-    // Kézi ütemezés
-    $('#save').onclick = async () => {
-      const email = $('#email').value.trim();
-      const minutes = +$('#mins').value;
-      if (!email) { show($('#msg'), false, 'Adj meg e-mail címet.'); return; }
-
-      $('#save').disabled = true;
-      show($('#msg'), null, 'Mentés…');
-
-      try{
-        const r = await fetch('/schedule?to='+encodeURIComponent(email)+'&minutes='+minutes);
-        const data = await r.json().catch(()=>null);
-
-        if (!r.ok) {
-          show($('#msg'), false, 'Hiba az időpont rögzítésénél.');
-          if (debug) { $('#dbgSave').style.display='block'; $('#dbgSave').textContent = fmt(data||{}); }
-          return;
-        }
-
-        show($('#msg'), true, 'Ütemezve ✓');
-        if (debug) { $('#dbgSave').style.display='block'; $('#dbgSave').textContent = fmt(data); }
-        paintLast({
-          id: data.id,
-          confirm: data.confirm || data.links?.confirm,
-          cancel:  data.cancel  || data.links?.cancel,
-          status:  data.status  || data.links?.status,
-          startsAt: data.startsAt
-        });
-      }catch{
-        show($('#msg'), false, 'Hálózati hiba.');
-      }finally{
-        $('#save').disabled = false;
-      }
-    };
-    $('#clear').onclick = () => { $('#email').value=''; $('#mins').value='3'; hide($('#msg')); $('#dbgSave').style.display='none'; };
-
     // Események betöltése
     $('#load').onclick = async () => {
       hide($('#gmsg'));
@@ -214,3 +178,4 @@
   </script>
 </body>
 </html>
+
