@@ -1,181 +1,97 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="hu">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>No-Show Shield</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>No-Show Shield – Emlékeztetők</title>
   <style>
-    :root{--fg:#111;--muted:#6b7280;--ok:#0a7;--err:#c33;--bd:#e5e7eb;--bg:#fafafa;--link:#2563eb}
-    *{box-sizing:border-box}
-    body{font:16px/1.45 system-ui,Segoe UI,Roboto,Arial,sans-serif;color:var(--fg);background:#fff;margin:0}
-    .wrap{max-width:860px;margin:0 auto;padding:24px 16px}
-    header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
-    .brand{font-weight:700;font-size:20px}
-    .badge{font-size:12px;color:#fff;background:#111;padding:2px 8px;border-radius:999px}
-    .card{border:1px solid var(--bd);border-radius:14px;padding:14px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.02)}
-    h2{font-size:18px;margin:0 0 10px}
-    label{display:block;margin:10px 0 6px}
-    input,select,button{font:16px;padding:10px 12px}
-    input,select{width:100%;border:1px solid var(--bd);border-radius:10px;background:#fff}
-    button{cursor:pointer;border:1px solid var(--bd);border-radius:10px;background:#fff}
-    button.primary{background:#111;color:#fff;border-color:#111}
-    button[disabled]{opacity:.6;cursor:not-allowed}
-    .row{display:flex;gap:10px;flex-wrap:wrap}
-    .muted{color:var(--muted);font-size:14px}
-    .status{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--bd)}
-    .status.ok{color:var(--ok);border-color:#b7f5dc;background:#effdf7}
-    .status.err{color:var(--err);border-color:#ffd6d6;background:#fff5f5}
-    .events{display:none;margin-top:8px}
-    .event{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--bd);padding:12px 4px}
-    .event:first-child{border-top:none}
-    .links a{color:var(--link);text-decoration:none;word-break:break-all}
-    .links a:hover{text-decoration:underline}
-    .kvs{display:none;font-family:ui-monospace, Menlo, Consolas, monospace;font-size:13px;background:#f8f9fb;border:1px solid var(--bd);border-radius:10px;padding:10px;white-space:pre-wrap;margin-top:8px}
-    .grid{display:grid;grid-template-columns:1fr;gap:16px}
-    @media(min-width:860px){.grid{grid-template-columns:1fr 1fr}}
+    body {
+      font-family: system-ui, sans-serif;
+      background: #fafafa;
+      color: #222;
+      margin: 2rem auto;
+      max-width: 700px;
+      line-height: 1.6;
+    }
+    h1 { text-align: center; color: #0a2540; }
+    button {
+      background: #0a2540;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      transition: 0.2s;
+    }
+    button:hover { background: #123e6d; }
+    .event {
+      background: #fff;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+    .small {
+      color: #666;
+      font-size: 0.9em;
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div class="brand">No-Show Shield</div>
-      <div class="badge">MVP</div>
-    </header>
+  <h1>No-Show Shield – Emlékeztetők</h1>
 
-    <div class="grid">
-      <!-- Bal hasáb -->
-      <section class="card">
-        <h2>Foglalás e-mailje</h2>
-        <label for="email">Ügyfél e-mail</label>
-        <input id="email" type="email" placeholder="pl. ugyfel@pelda.hu" />
-        <label for="mins">Kezdés ennyi perc múlva (gyors teszt)</label>
-        <select id="mins">
-          <option value="3">3 perc (teszt)</option>
-          <option value="5">5 perc</option>
-          <option value="15">15 perc</option>
-          <option value="60">60 perc</option>
-        </select>
-        <div class="row" style="margin-top:10px">
-          <button id="save" class="primary">Időpont rögzítése</button>
-          <button id="clear" type="button">Űrlap törlése</button>
-        </div>
-        <div id="msg" class="status" style="display:none"></div>
-        <pre id="dbgSave" class="kvs"></pre>
-      </section>
+  <section>
+    <p><strong>Google Calendar események</strong></p>
+    <p>Ha még nem vagy bejelentkezve, kattints a <a href="/auth">Google auth</a> gombra, majd frissítsd az oldalt.</p>
+    <button onclick="loadEvents()">Események betöltése</button>
+  </section>
 
-      <!-- Jobb hasáb -->
-      <section class="card">
-        <h2>Google Calendar</h2>
-        <div class="muted">Ha még nem engedélyezted, jelentkezz be: <a href="/auth">Google auth</a>.</div>
-        <div class="row" style="margin-top:10px">
-          <button id="load">Események betöltése</button>
-        </div>
-        <div id="gmsg" class="status" style="display:none"></div>
-        <div id="events" class="events"></div>
-      </section>
-    </div>
-
-    <section class="card" style="margin-top:16px">
-      <h2>Utolsó ütemezés</h2>
-      <div class="muted">Azonosító és linkek a műveletekhez.</div>
-      <div id="lastWrap" style="display:none;margin-top:8px">
-        <div id="lastId" class="muted"></div>
-        <div id="links" class="links" style="margin-top:8px"></div>
-      </div>
-      <pre id="dbgLast" class="kvs"></pre>
-    </section>
-
-    <footer class="muted" style="margin-top:20px">
-      Tipp: ha kér üzenetet a rendszer, előbb <a href="/auth">Google auth</a>, utána térj vissza ide.
-    </footer>
-  </div>
+  <section id="events"></section>
 
   <script>
-    const $  = s => document.querySelector(s);
-    const fmt = o => JSON.stringify(o,null,2);
-    const show = (el, ok, txt) => {
-      el.style.display = 'block';
-      el.className = 'status ' + (ok===true ? 'ok' : ok===false ? 'err' : '');
-      el.textContent = txt || '';
-    };
-    const hide = el => el.style.display='none';
-    const debug = new URLSearchParams(location.search).get('debug') === '1';
+    async function loadEvents() {
+      const btn = document.querySelector("button");
+      btn.disabled = true;
+      btn.textContent = "Betöltés...";
+      try {
+        const res = await fetch("/gcal/upcoming");
+        const data = await res.json();
+        if (!data.events || !data.events.length) {
+          document.getElementById("events").innerHTML = "<p>Nincs közelgő esemény a naptárban.</p>";
+          return;
+        }
 
-    // Események betöltése
-    $('#load').onclick = async () => {
-      hide($('#gmsg'));
-      $('#events').style.display='none'; $('#events').innerHTML='';
-      show($('#gmsg'), null, 'Betöltés…');
-      try{
-        const r = await fetch('/gcal/upcoming');
-        const data = await r.json().catch(()=>null);
-
-        if (r.status === 401) { show($('#gmsg'), false, 'Nincs Google engedély. Kattints a Google auth-ra.'); return; }
-        if (!r.ok) { show($('#gmsg'), false, 'Nem sikerült betölteni.'); return; }
-        if (!data?.events?.length) { show($('#gmsg'), null, 'Nincs közelgő esemény.'); return; }
-
-        hide($('#gmsg'));
-        const box = $('#events');
-        data.events.forEach(e=>{
-          const div = document.createElement('div');
-          div.className = 'event';
-          div.innerHTML = `
-            <div><b>${e.summary||'(névtelen)'}</b><br><small>${e.start||''}</small></div>
-            <button class="primary" data-id="${e.id}">Ütemezés erre</button>`;
-          box.appendChild(div);
+        let html = "";
+        data.events.forEach(e => {
+          html += `
+            <div class="event">
+              <b>${e.summary || "(névtelen)"}</b><br>
+              <span class="small">${e.start}</span><br><br>
+              <button onclick="schedule('${e.id}', '${e.start}')">Ütemezés erre</button>
+            </div>
+          `;
         });
-        box.style.display='block';
-      }catch{
-        show($('#gmsg'), false, 'Hálózati hiba.');
+        document.getElementById("events").innerHTML = html;
+      } catch (err) {
+        document.getElementById("events").innerHTML = `<p style="color:red;">Hiba az események betöltésénél.</p>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Események betöltése";
       }
-    };
+    }
 
-    // Delegált kattintás a listában
-    document.addEventListener('click', async (ev)=>{
-      const b = ev.target;
-      if (!(b instanceof HTMLElement)) return;
-      const id = b.getAttribute('data-id');
-      if (!id) return;
-
-      const to = $('#email').value.trim();
-      if (!to) { show($('#msg'), false, 'Adj meg e-mail címet.'); return; }
-
-      const prev = b.textContent;
-      b.disabled = true; b.textContent = 'Ütemezés…';
-      try{
-        const r = await fetch('/gcal/schedule', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ eventId:id, to })
-        });
-        const data = await r.json().catch(()=>null);
-
-        if (r.status === 401) { show($('#msg'), false, 'Nincs Google engedély. Kattints a Google auth-ra.'); b.textContent='Hiba'; return; }
-        if (!r.ok) { show($('#msg'), false, 'Hiba a Google ütemezésnél.'); if (debug){$('#dbgSave').style.display='block'; $('#dbgSave').textContent=fmt(data||{});} b.textContent='Hiba'; return; }
-
-        show($('#msg'), true, 'Ütemezve ✓');
-        if (debug){ $('#dbgSave').style.display='block'; $('#dbgSave').textContent=fmt(data); }
-        paintLast({ id:data.id, confirm:data.links?.confirm, cancel:data.links?.cancel, status:data.links?.status, startsAt:data.startsAt });
-        b.textContent='Ütemezve ✓';
-      }catch{
-        show($('#msg'), false, 'Hálózati hiba.'); b.textContent='Hiba';
-      }finally{
-        setTimeout(()=>{ b.disabled=false; b.textContent=prev; }, 2200);
-      }
-    });
-
-    function paintLast(info){
-      if (!info) return;
-      $('#lastWrap').style.display='block';
-      $('#lastId').textContent = `ID: ${info.id}  •  Kezdés: ${info.startsAt||'-'}`;
-      const parts = [];
-      if (info.confirm) parts.push(`<div>Visszaigazolás: <a href="${info.confirm}" target="_blank">${info.confirm}</a></div>`);
-      if (info.cancel)  parts.push(`<div>Lemondás: <a href="${info.cancel}" target="_blank">${info.cancel}</a></div>`);
-      if (info.status)  parts.push(`<div>Státusz: <a href="${info.status}" target="_blank">${info.status}</a></div>`);
-      $('#links').innerHTML = parts.join('');
-      if (debug){ $('#dbgLast').style.display='block'; $('#dbgLast').textContent = fmt(info); }
+    async function schedule(eventId, start) {
+      const to = prompt("Add meg az ügyfél e-mail címét:");
+      if (!to) return;
+      const res = await fetch("/gcal/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, to })
+      });
+      const data = await res.json();
+      alert(data.ok ? "Emlékeztető ütemezve!" : "Hiba az ütemezésnél!");
     }
   </script>
 </body>
 </html>
-
