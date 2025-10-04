@@ -5,18 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>No-Show Shield</title>
   <style>
-    :root{
-      --bg:#0b1220; --card:#0f172a; --muted:#9aa4b2; --fg:#f8fafc;
-      --accent:#22c55e; --accent2:#38bdf8; --err:#f87171; --bd:#1f2937
-    }
+    :root{--bg:#0b1220;--card:#0f172a;--muted:#9aa4b2;--fg:#f8fafc;--accent:#22c55e;--accent2:#38bdf8;--err:#f87171;--bd:#1f2937}
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,Segoe UI,Roboto,Arial,sans-serif}
-    .hero{
-      background: radial-gradient(1200px 500px at 20% -20%, rgba(56,189,248,.15), transparent),
-                  radial-gradient(1000px 600px at 120% -40%, rgba(34,197,94,.12), transparent),
-                  var(--bg);
-      border-bottom:1px solid #0b1326
-    }
+    .hero{background:radial-gradient(1200px 500px at 20% -20%,rgba(56,189,248,.15),transparent),radial-gradient(1000px 600px at 120% -40%,rgba(34,197,94,.12),transparent),var(--bg);border-bottom:1px solid #0b1326}
     .wrap{max-width:980px;margin:0 auto;padding:28px 16px}
     header{display:flex;align-items:center;justify-content:space-between;gap:12px}
     .brand{display:flex;align-items:center;gap:10px}
@@ -41,8 +33,9 @@
     .event:first-child{border-top:none}
     .title{font-weight:700}
     .small{color:var(--muted);font-size:13px}
-    .links a{color:#93c5fd;text-decoration:none;word-break:break-all}
-    .links a:hover{text-decoration:underline}
+    .linkrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+    .mini{padding:8px 12px;border-radius:10px;border:1px solid #223048;background:#0b1326;color:#cfe8ff;font-weight:600}
+    .mini.primary{background:#1e293b;color:#bfe1ff}
     footer{color:var(--muted);font-size:13px;margin:28px 0 20px;text-align:center}
   </style>
 </head>
@@ -61,26 +54,33 @@
       </header>
 
       <div class="grid">
-        <!-- Bal: e-mail + események -->
         <section class="card">
           <label for="email">Ügyfél e-mail címe</label>
           <input id="email" type="email" placeholder="pl. ugyfel@pelda.hu" />
-
           <div class="row" style="margin-top:12px">
             <button class="primary" id="load">Események betöltése</button>
           </div>
           <div id="gmsg" class="status"></div>
-
           <div id="events" class="events"></div>
         </section>
 
-        <!-- Jobb: utolsó ütemezés -->
         <section class="card">
           <div class="title">Utolsó ütemezés</div>
-          <div class="small">Azonosító és gyorslinkek</div>
+          <div class="small">Azonosító és gyorsműveletek</div>
           <div id="last" style="margin-top:12px;display:none">
             <div id="lastId" class="small"></div>
-            <div id="links" class="links" style="margin-top:10px"></div>
+            <div class="linkrow" id="rowConfirm" style="display:none">
+              <button class="mini primary" id="btnConfirmOpen">Visszaigazolás megnyitása</button>
+              <button class="mini" id="btnConfirmCopy">Link másolása</button>
+            </div>
+            <div class="linkrow" id="rowCancel" style="display:none">
+              <button class="mini primary" id="btnCancelOpen">Lemondás megnyitása</button>
+              <button class="mini" id="btnCancelCopy">Link másolása</button>
+            </div>
+            <div class="linkrow" id="rowStatus" style="display:none">
+              <button class="mini primary" id="btnStatusOpen">Státusz megnyitása</button>
+              <button class="mini" id="btnStatusCopy">Link másolása</button>
+            </div>
           </div>
           <div id="msg" class="status"></div>
         </section>
@@ -100,7 +100,7 @@
     // Események betöltése
     $('#load').onclick = async () => {
       const email = $('#email').value.trim();
-      if (!email) { show($('#msg'), 'err', 'Adj meg e-mail címet.'); return; }
+      if (!email) { show($('#msg'),'err','Adj meg e-mail címet.'); return; }
 
       const btn = $('#load');
       btn.disabled = true; show($('#gmsg'), null, 'Betöltés…');
@@ -110,9 +110,9 @@
         const r = await fetch('/gcal/upcoming');
         const data = await r.json().catch(()=>null);
 
-        if (r.status === 401) { show($('#gmsg'), 'err', 'Nincs Google engedély. Kattints fent a Google auth gombra.'); return; }
-        if (!r.ok) { show($('#gmsg'), 'err', 'Nem sikerült betölteni az eseményeket.'); return; }
-        if (!data?.events?.length) { show($('#gmsg'), null, 'Nincs közelgő esemény.'); return; }
+        if (r.status === 401) { show($('#gmsg'),'err','Nincs Google engedély. Kattints a Google auth gombra.'); return; }
+        if (!r.ok) { show($('#gmsg'),'err','Nem sikerült betölteni az eseményeket.'); return; }
+        if (!data?.events?.length) { show($('#gmsg'), null,'Nincs közelgő esemény.'); return; }
 
         hide($('#gmsg'));
         const box = $('#events');
@@ -135,7 +135,7 @@
       }
     };
 
-    // „Ütemezés erre” gombok
+    // Ütemezés gombok
     document.addEventListener('click', async (ev)=>{
       const b = ev.target;
       if (!(b instanceof HTMLElement)) return;
@@ -143,7 +143,7 @@
       if (!id) return;
 
       const to = $('#email').value.trim();
-      if (!to) { show($('#msg'), 'err', 'Adj meg e-mail címet.'); return; }
+      if (!to) { show($('#msg'),'err','Adj meg e-mail címet.'); return; }
 
       const prev=b.textContent; b.disabled=true; b.textContent='Ütemezés…';
       try{
@@ -156,22 +156,41 @@
         if (r.status === 401) { show($('#msg'),'err','Nincs Google engedély. Kattints a Google auth gombra.'); b.textContent='Hiba'; return; }
         if (!r.ok) { show($('#msg'),'err','Hiba a Google ütemezésnél.'); b.textContent='Hiba'; return; }
 
-        // siker
         show($('#msg'),'ok','Emlékeztetők ütemezve ✓');
-        $('#last').style.display='block';
-        $('#lastId').textContent = `ID: ${data.id}  •  Kezdés: ${data.startsAt||'-'}`;
-        $('#links').innerHTML = `
-          <div>Visszaigazolás: <a target="_blank" href="${data.links?.confirm}">${data.links?.confirm}</a></div>
-          <div>Lemondás: <a target="_blank" href="${data.links?.cancel}">${data.links?.cancel}</a></div>
-          <div>Státusz: <a target="_blank" href="${data.links?.status}">${data.links?.status}</a></div>`;
+        paintLinks(data);
         b.textContent='Ütemezve ✓';
       }catch{
-        show($('#msg'),'err','Hálózati hiba.');
-        b.textContent='Hiba';
+        show($('#msg'),'err','Hálózati hiba.'); b.textContent='Hiba';
       }finally{
         setTimeout(()=>{ b.disabled=false; b.textContent=prev; }, 2200);
       }
     });
+
+    // Szép linkgombok + másolás
+    function paintLinks(data){
+      $('#last').style.display='block';
+      $('#lastId').textContent = `ID: ${data.id}  •  Kezdés: ${data.startsAt||'-'}`;
+
+      const L = data.links || {};
+      setupRow('Confirm', L.confirm, 'Visszaigazolás megnyitása');
+      setupRow('Cancel',  L.cancel,  'Lemondás megnyitása');
+      setupRow('Status',  L.status,  'Státusz megnyitása');
+    }
+    function setupRow(kind, url, label){
+      const row = $('#row'+kind);
+      if (!url) { row.style.display='none'; return; }
+      row.style.display='flex';
+      $('#btn'+kind+'Open').onclick = ()=> window.open(url, '_blank');
+      $('#btn'+kind+'Copy').onclick = async ()=>{
+        try{ await navigator.clipboard.writeText(url); flash('#btn'+kind+'Copy','Másolva ✓'); }
+        catch{ flash('#btn'+kind+'Copy','Hiba'); }
+      };
+    }
+    function flash(sel, txt){
+      const el = $(sel); const prev = el.textContent;
+      el.textContent = txt; el.disabled = true;
+      setTimeout(()=>{ el.textContent = prev; el.disabled = false; }, 1200);
+    }
   </script>
 </body>
 </html>
