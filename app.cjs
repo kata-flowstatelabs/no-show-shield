@@ -13,6 +13,7 @@ const {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   GOOGLE_REDIRECT_URI,
+  GOOGLE_REFRESH_TOKEN,   // ÚJ: tartós refresh token ide
   TEST_MODE,
   REMINDER_OFFSETS,
   TEST_REMINDER_OFFSETS
@@ -20,15 +21,11 @@ const {
 
 if (!SENDGRID_API_KEY || !SENDGRID_API_KEY.startsWith("SG.")) { console.error("SENDGRID_API_KEY hiányzik/rossz"); process.exit(1); }
 if (!SENDGRID_FROM) { console.error("SENDGRID_FROM hiányzik"); process.exit(1); }
-
 sgMail.setApiKey(SENDGRID_API_KEY);
 
 // ==== APP ====
 const app = express();
-
-// kérés-naplózás a Render loghoz
-app.use((req, _res, next) => { console.log("HTTP", req.method, req.url); next(); });
-
+app.use((req,_res,next)=>{ console.log("HTTP", req.method, req.url); next(); });
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -38,7 +35,7 @@ app.use(express.static(__dirname)); // index.html itt van
 const appts = new Map();
 let googleTokens = null; // {access_token, refresh_token, expiry_date}
 
-// --- OFFSETS betöltés (éles vs teszt) ---
+// --- OFFSETS (éles vs teszt) ---
 function parseOffsets(str, fallback) {
   if (!str) return fallback;
   try {
@@ -107,8 +104,57 @@ function scheduleReminders(id, startIso, to, req){
 
 // életjel
 app.get("/ping", (_req,res)=>res.send("pong"));
+app.get("/health", (_req,res)=>res.json({ok:true}));
 
 // ===== Google OAuth =====
+async function exchangeAuthCodeForTokens(code){
+  const body = new URLSearchParams({
+    code,
+    client_id: GOOGLE_CLIENT_ID,
+    client_secret: GOOGLE_CLIENT_SECRET,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    grant_type: "authorization_code"
+  });
+  const r = await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+  const data = await r.json();
+  if(!r.ok) throw new Error("Token csere hiba: "+JSON.stringify(data));
+  return {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || null,
+    expiry_date: Date.now() + (data.expires_in||0)*1000
+  };
+}
+async function refreshAccessToken(refreshToken){
+  const body = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    client_secret: GOOGLE_CLIENT_SECRET,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token"
+  });
+  const r = await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+  const data = await r.json();
+  if(!r.ok) throw new Error("Refresh hiba: "+JSON.stringify(data));
+  return {
+    access_token: data.access_token,
+    refresh_token: refreshToken,
+    expiry_date: Date.now() + (data.expires_in||0)*1000
+  };
+}
+async function ensureAccessToken(){
+  if (googleTokens?.access_token && googleTokens.expiry_date && googleTokens.expiry_date > Date.now()+60_000) return;
+  if (googleTokens?.refresh_token) {
+    googleTokens = await refreshAccessToken(googleTokens.refresh_token);
+    console.log("Google token frissítve (memóriából).");
+    return;
+  }
+  if (GOOGLE_REFRESH_TOKEN) {
+    googleTokens = await refreshAccessToken(GOOGLE_REFRESH_TOKEN);
+    console.log("Google token frissítve (env refresh tokenből).");
+    return;
+  }
+  throw new Error("Nincs refresh token. Menj /auth-ra.");
+}
+
 app.get("/auth",(req,res)=>{
   if(!GOOGLE_CLIENT_ID||!GOOGLE_REDIRECT_URI) return res.status(500).send("Google OAuth nincs konfigurálva.");
   const p = new URLSearchParams({
@@ -122,54 +168,33 @@ app.get("/auth",(req,res)=>{
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p.toString()}`);
 });
 
-async function refreshIfNeeded(){
-  if(!googleTokens) return;
-  const soon = Date.now()+60_000;
-  if(googleTokens.expiry_date && googleTokens.expiry_date>soon) return;
-  if(!googleTokens.refresh_token) return;
-  const body = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    client_secret: GOOGLE_CLIENT_SECRET,
-    refresh_token: googleTokens.refresh_token,
-    grant_type: "refresh_token"
-  });
-  const r = await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  const data = await r.json();
-  if(r.ok){
-    googleTokens.access_token = data.access_token;
-    googleTokens.expiry_date = Date.now() + (data.expires_in||0)*1000;
-    console.log("Google token frissítve.");
-  }else{
-    console.error("Token refresh hiba:",data);
-  }
-}
-
 app.get("/oauth2callback", async (req,res)=>{
   const code = req.query.code;
   if(!code) return res.status(400).send("Hiányzó 'code'.");
-  const body = new URLSearchParams({
-    code,
-    client_id: GOOGLE_CLIENT_ID,
-    client_secret: GOOGLE_CLIENT_SECRET,
-    redirect_uri: GOOGLE_REDIRECT_URI,
-    grant_type: "authorization_code"
-  });
-  const r = await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  const data = await r.json();
-  if(!r.ok) return res.status(502).send("Token csere hiba: "+JSON.stringify(data));
-  googleTokens = {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token||googleTokens?.refresh_token||null,
-    expiry_date: Date.now() + (data.expires_in||0)*1000
-  };
-  console.log("Google engedélyezve. Van refresh token:", !!googleTokens.refresh_token);
-  res.send("<b>Google engedélyezve.</b> Visszaléphetsz az alkalmazásra.");
+  try{
+    const t = await exchangeAuthCodeForTokens(code);
+    googleTokens = t;
+    // FIGYELEM: csak egyszer kell, utána env-be tedd!
+    if (t.refresh_token) {
+      console.log("REFRESH_TOKEN:", t.refresh_token); // Ezt másold be: GOOGLE_REFRESH_TOKEN=...
+      console.log("Google engedélyezve. Van refresh token:", true);
+      return res.send("<b>Google engedélyezve.</b><br>Másold ki a Render Logból a <code>REFRESH_TOKEN</code> értékét, és tedd be a környezeti változók közé: <code>GOOGLE_REFRESH_TOKEN=...</code>. Ezután redeploy.");
+    } else {
+      console.log("Google engedélyezve. NINCS új refresh token (valószínűleg már volt).");
+      return res.send("<b>Google engedélyezve.</b> Ha nincs REFRESH_TOKEN a logban, akkor már be van állítva.");
+    }
+  }catch(e){
+    res.status(502).send(String(e.message||e));
+  }
 });
 
 // ===== Calendar: listázás és ütemezés =====
 app.get("/gcal/upcoming", async (req,res)=>{
-  if(!googleTokens?.access_token) return res.status(401).json({error:"Nincs Google engedély. Lépj be: /auth"});
-  await refreshIfNeeded();
+  try{
+    await ensureAccessToken();
+  }catch(e){
+    return res.status(401).json({error:"Nincs Google engedély. Lépj be: /auth", detail:String(e.message||e)});
+  }
   const max = Math.min(Number(req.query.max||10),50);
   const nowIso = new Date().toISOString();
   const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
@@ -194,9 +219,13 @@ app.get("/gcal/upcoming", async (req,res)=>{
 app.post("/gcal/schedule", async (req,res)=>{
   const { eventId, to } = req.body||{};
   if(!eventId || !to) return res.status(400).json({error:"Kell: eventId és to"});
-  if(!googleTokens?.access_token) return res.status(401).json({error:"Nincs Google engedély. /auth"});
 
-  await refreshIfNeeded();
+  try{
+    await ensureAccessToken();
+  }catch(e){
+    return res.status(401).json({error:"Nincs Google engedély. /auth", detail:String(e.message||e)});
+  }
+
   const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
   const r = await fetch(url, { headers:{ Authorization:`Bearer ${googleTokens.access_token}` }});
   const e = await r.json();
